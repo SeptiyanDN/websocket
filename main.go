@@ -14,22 +14,43 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
+var connections = make(map[*websocket.Conn]bool)
+var broadcast = make(chan []byte)
+
+func handleMessages() {
+	for {
+		// grab any message from the broadcast channel
+		msg := <-broadcast
+
+		// send it out to every client that is currently connected
+		for conn := range connections {
+			err := conn.WriteMessage(websocket.TextMessage, msg)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		}
+	}
+}
+
 func reader(conn *websocket.Conn) {
+	// add the new connection to the pool
+	connections[conn] = true
+
 	for {
 		// read in a message
-		messageType, p, err := conn.ReadMessage()
+		_, p, err := conn.ReadMessage()
 		if err != nil {
 			log.Println(err)
+			delete(connections, conn)
+			conn.Close()
 			return
 		}
 		// print out that message for clarity
 		log.Println(string(p))
 
-		if err := conn.WriteMessage(messageType, p); err != nil {
-			log.Println(err)
-			return
-		}
-
+		// broadcast the received message to all connected clients
+		broadcast <- p
 	}
 }
 
@@ -62,5 +83,9 @@ func setupRoutes() {
 func main() {
 	fmt.Println("Hello World")
 	setupRoutes()
+
+	// Start a goroutine to handle incoming messages and broadcast them to all clients
+	go handleMessages()
+
 	log.Fatal(http.ListenAndServe(":3500", nil))
 }

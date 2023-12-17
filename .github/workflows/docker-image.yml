@@ -39,9 +39,9 @@ jobs:
           username: movieid
           password: Sukses@2023
           script: |
-            docker stop backend || true
-            docker rm backend || true
+            docker stop websocket || true
+            docker rm websocket || true
             docker images || true
             docker rmi $(docker images -q) || true
             docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/websocket:latest
-            docker run -d --name backend -p 3500:3500 --hostname 54.179.69.89 kedaiprogrammer/websocket:latest
+            docker run -d --name websocket -p 3500:3500 kedaiprogrammer/websocket:latest

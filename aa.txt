@@ -1,0 +1,83 @@
+package main
+
+import (
+	"log"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+)
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin:     func(r *http.Request) bool { return true },
+}
+
+var channels = make(map[string]map[*websocket.Conn]bool)
+var broadcast = make(chan map[string][]byte)
+
+func handleMessages() {
+	for {
+		msg := <-broadcast
+
+		for conn := range channels[string(msg["channel_id"])] {
+			err := conn.WriteMessage(websocket.TextMessage, msg["message"])
+			if err != nil {
+				log.Println(err)
+				// Remove the connection if there's an error writing to it
+				delete(channels[string(msg["channel_id"])], conn)
+				conn.Close()
+			}
+		}
+	}
+}
+
+func reader(conn *websocket.Conn, channelID string) {
+	if _, ok := channels[channelID]; !ok {
+		channels[channelID] = make(map[*websocket.Conn]bool)
+	}
+	channels[channelID][conn] = true
+
+	for {
+		_, p, err := conn.ReadMessage()
+		if err != nil {
+			log.Println(err)
+			delete(channels[channelID], conn)
+			conn.Close()
+			return
+		}
+		log.Println(string(p))
+
+		broadcast <- map[string][]byte{"channel_id": []byte(channelID), "message": p}
+	}
+}
+
+func wsEndpoint(c *gin.Context) {
+	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	channelID := c.Param("channel_id")
+	log.Printf("Client Connected to Channel %s\n", channelID)
+
+	err = ws.WriteMessage(1, []byte("Hi Client!")) // Fix the syntax here
+	if err != nil {
+		log.Println(err)
+	}
+
+	reader(ws, channelID)
+}
+
+func setupRoutes() {
+	r := gin.Default()
+	r.GET("/ws/:channel_id", wsEndpoint)
+	r.Run(":3500")
+}
+
+func main() {
+	setupRoutes()
+	go handleMessages()
+}
